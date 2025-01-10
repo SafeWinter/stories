@@ -276,3 +276,6 @@ python generate_files.py
 6. 脚本运行前提前做好备份（以避免 `rm -Recurse -Force *` 把 `Python` 脚本文件本身也删没了的杯具。。）；
 7. 尽量避免引用全局变量，多用参数传参（本例必须使用全局变量，以实时获取当前的文件夹名称和路径）；
 8. 主体框架确定后，今后只需要修改文件夹和文件的处理逻辑，就可以适应不同的原始数据。
+9. `os.makedirs(path, exist_ok=True)` 中的 `exist_ok` 参数用于控制在指定路径已经存在时的行为：
+   1. 当 `exist_ok=True` 时，如果目标目录已经存在，`makedirs` 不会抛出异常（本例暂不涉及）；
+   2. 当 `exist_ok=False`（默认值）时，如果目标目录已存在，则会抛出 `FileExistsError` 异常。
