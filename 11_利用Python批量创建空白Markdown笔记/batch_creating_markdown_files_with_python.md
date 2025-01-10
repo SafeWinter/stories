@@ -16,7 +16,7 @@
 
 **图 1：原始课程目录结构（节选）**
 
-复制到一个临时文件 `toc.md` 后张这样：
+复制到一个临时文件 `toc.md` 后长这样：
 
 ![](assets/2.png)
 
@@ -90,7 +90,7 @@ with open('./toc.md', 'r') as f:
             chp_num = chapter_num
         else:
             # 如果不是章节标题，则生成该小节的 文本内容 和 文件名
-            (sec_file_name, sec_content) = make_section(line, chp_num)
+            (sec_file_name, sec_content) = make_section(line, chp_num, sec_num)
             
             # 添加该小节的文本内容
             file_names.append(sec_file_name)
