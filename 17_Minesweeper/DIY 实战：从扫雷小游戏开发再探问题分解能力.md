@@ -266,8 +266,6 @@ h1 {
 
 
 
-
-
 ### 3.2 页面渲染逻辑
 
 设计好了静态页面，接下来就可以安心拆解 `JavaScript` 核心逻辑了。
@@ -337,7 +335,9 @@ flowchart LR
 
 **图 4 初步确定的 init() 函数拆分方案**
 
+---
 
+（中篇）
 
 ### 3.3 事件绑定逻辑
 
@@ -838,9 +838,61 @@ function searchAround(curCell, curDom, colSize, mines) {
 
 本来计划把后续和 `Copilot` 的交互过程也梳理一下，结果又写了这么多内容，只有放到下一篇继续了。
 
+（下篇）
 
+## 5 复盘与 Copilot 的交互过程
 
-上述子函数中，值得强调的是最后那个需要递归调用的检索函数。第一次实现时，其实比没有想象中那么顺利，`Copilot` 也没能按照注释顺利生成递归调用代码，只是创建了一个 `MouseEvent` 实例来分别点击周边的单元格：
+前面两篇文章分别涵盖了扫雷游戏的问题分解和代码实现过程，不知道各位是否会有代码一气呵成的错觉？实际上，为了达到最终效果（如下所示），我和 `GitHub Copilot` 进行了多次正面交锋，其间也走了很多弯路，这一篇就来和大家聊聊看似简单的 `AI` 辅助编程暗含的陷阱和我实战时踩过的坑。
+
+先说说 `Copilot` 的优点吧。由于看过书中作者和 `Copilot Chat` 的交互过程十分低效，我用得最多的仍然是代码实时补全功能。`Copilot` 在回答很具体的小微型问题时是非常给力的，比如 `utils.js` 工具模块的通用函数提示、函数 `jsdoc` 文档的生成以及周边单元格的边界讨论方面都非常出彩，几乎不用二次修改。这可能跟 `GitHub Copilot` 底层大模型的训练数据有关——扫雷游戏开发已经是一个烂大街的练手项目了，跟平时经常刷到的吃豆子、贪吃蛇、俄罗斯方块等属于同一个级别的编程问题，因此数据质量是有保证的，效果也的确不错。
+
+但是对于一些有难度的处理逻辑，`Copilot` 就有点力不从心了。本例中的典型代表，当属单元格递归检索部分的代码实现。先上代码：
+
+```js
+cell.onmousedown = ({ target, which }) => {
+    /*...*/
+    if (which === 1) { // 左击
+        // 1. 如果已插旗，则不处理
+        if (cellObj.flagged) return;
+
+        // 2. 踩雷，游戏结束：
+        if (cellObj.isMine) {
+            /*...*/
+            return;
+        }
+
+        // 3. 若为安全区域，标记为已检查
+        searchAround(cellObj, target, lv.col, mines);
+
+        // 4. 查看是否胜利
+        /*...*/
+    }
+});
+
+function searchAround(curCell, curDom, colSize, mines) {
+    curCell.checked = true;
+
+    // Render the current cell
+    curDom.classList.add('number', `mc-${curCell.mineCount}`);
+    curDom.innerHTML = curCell.mineCount;
+
+    // 如果是空白单元格，则递归显示周围的格子，直到遇到非空白单元格
+    if (curCell.mineCount === 0) {
+        curDom.innerHTML = '';
+        curCell.neighbors.forEach(nbId => {
+            const nbCell = mines[nbId - 1];
+            const nbDom = $(`[data-id="${getIJ(nbId, colSize)}"]`);
+            if(!nbCell.checked && !nbCell.flagged && !nbCell.isMine) {
+                searchAround(nbCell, nbDom, colSize, mines);
+            }
+        });
+    }
+}
+```
+
+上述递归子函数 `searchAround()` 中，最核心的 `L29-L37` 其实是我自己写的，因为在此之前我让 `Copilot` 尝试了不下五次都没能给出最正确的版本。
+
+这一部分的原始版本其实是 `Copilot` 根据我的注释内容补全的，当时它用的是 `MouseEvent` 实例，将周边单元格的状态计算通过重新触发一次鼠标点击来实现，看上去是那么的良畜无害：
 
 ```js
 if(cellObj.mineCount > 0) {
@@ -862,11 +914,188 @@ if(cellObj.mineCount > 0) {
  }
 ```
 
-一开始我还没注意这个问题，以为这样就能递归调用了，但是运行时偶尔会堆栈溢出。即便这样，我还是没往 `Copilot` 提示错误的方向思考，以为是随机分布地雷时出现了边界重合，导致算过的区域又重复计算（如图 3 所示）：
+结果换到中高级难度时，偶尔就会出现堆栈溢出的情况：
+
+![](assets/5.png)
+
+**图 3 利用 Copilot 补全的代码出现的堆栈溢出的情况截图**
+
+虽然报错代码定位在了 `L14`；即便这样，但凭借对前面问题分解的过分自信，我还是没往 `Copilot` 提示错误的方向思考，而是认定遗漏了某个边界条件。再一捋，还真被我找到一个看似合理的解释：随机分布地雷时安全边界未完全闭合，导致算过的区域又窜到另一块区域重复计算（如图 6 所示）：
 
 ![](assets/3.png)
 
-**图 3：对比 Windows 扫雷游戏发现的边界不闭合问题（左上第一个框中区域）**
+**图 4：对比 Windows 扫雷游戏发现的边界不闭合问题（左上第一个框中区域）**
 
-为了验证这个假设，我还专门把 `Windows` 的扫雷游戏重新装上完了几遍，发现 `Windows` 扫雷中的边界确实都是闭合的，
+为了验证这个假设，我还特意试了试 `Windows` 自带的扫雷游戏，边界果然都是完全闭合的：
 
+![](assets/6.png)
+
+**图 5：观察 Windows 自带的扫雷游戏看到的完全闭合边界**
+
+抱着怀疑的态度，我又问了 `Copilot` 是否是这个原因导致的，它说“很有可能”。这样一来，假设就得到了“多方验证”，接下来就是大刀阔斧地重构代码了：先确定边界完全闭合的判定条件，然后在初始化雷区时逐一判定，发现一处就重新随机生成，直到完全闭合。改了一大堆代码，这是其中两个核心逻辑：
+
+```js
+// Check if the mine distribution is valid
+function checkInvalidCorner(mineCells, col) {
+    return mineCells.filter(({ isMine, mineCount }) => !isMine && mineCount === 0)
+        .reduce((acc, cell) => {
+            const { id, neighbors } = cell, 
+                idLeft = id - 1, 
+                idRight = id + 1, 
+                idTop = id - col, 
+                idBottom = id + col;
+
+            const cornerChecker = checkCorner(neighbors, mineCells, col);
+            const [foundTL, ij1] = cornerChecker([idTop, idLeft], arr => Math.min(...arr) - 1 - 1);
+            const [foundTR, ij2] = cornerChecker([idTop, idRight], arr => Math.min(...arr) + 1 - 1);
+            const [foundBL, ij3] = cornerChecker([idBottom, idLeft], arr => Math.max(...arr) - 1 - 1);
+            const [foundBR, ij4] = cornerChecker([idBottom, idRight], arr => Math.max(...arr) + 1 - 1);
+            if (foundTL || foundTR || foundBL || foundBR) {
+                const coordinates = [ij1, ij2, ij3, ij4]
+                    .filter(Boolean)
+                    .map(c => `(${c})`);
+                acc.push(...coordinates);
+            }
+            return acc;
+        }, []);
+}
+
+function checkCorner(neighbors, mineCells, col) {
+    return (group, indexCb) => {
+        const nbs = neighbors.filter(nb => group.includes(nb));
+        const inPair = nbs.length === 2;
+        if (!inPair) {
+            return [false];
+        }
+
+        const bothNearMine = nbs.every(nbId => {
+            const target = mineCells[nbId - 1];
+            return (!!target) && (target.mineCount > 0);
+        });
+        if(!bothNearMine) {
+            return [false];
+        }
+
+        // 检查：左上角单元格存在且 mineCount > 0
+        const cornerIndex = indexCb(nbs);
+        const cornerCell = mineCells[cornerIndex];
+        const invalid = (!!cornerCell) && cornerCell.mineCount === 0;
+
+        if(!invalid) {
+            // 为有效单元格，跳过
+            return [false];
+        }
+
+        const ij = getIJ(cornerCell.id, col);
+        return [invalid, ij];
+    };
+}
+```
+
+如此折腾下来，堆栈溢出的问题明显少了很多，后台也能看到重新生成的次数，下一步就是继续探索新的边界条件了：
+
+![](assets/7.png)
+
+**图 6：根据安全边界完全闭合的说法重构的游戏界面与控制台提示信息截图**
+
+正当我为自己的阶段性胜利沾沾自喜时，老天似乎都看不下去了，特意让我在一次 `Windows` 原生扫雷游戏中看到了一次边界也有问题的 **特例**：
+
+![](assets/4.png)
+
+**图 7：Windows 扫雷游戏也出现了不完全闭合的安全边界，分分钟打脸之前的假设**
+
+聪明的你没有看错，这是刚开局不久第一次探雷的结果：即便框中部分的边界并没有“完全”闭合，也丝毫不影响安全区域的最终扩散。之前自信心爆棚的假设验证环节就这样不攻自破了。我也才猛然醒悟 `Copilot` 那句代码的真正问题：四周的八个单元格依次触发 `mousedown` 事件，到最后一个邻近区域时如果周边还是没有地雷，就又会以该点为中心，把此前计算过的区域划为下一轮计算目标，由此导致循环往复。这说明在递归查询时还应该补充一个状态位，检查过的单元格就不要再算下去了，这样才能从源头上控制溢出。
+
+顺着这个思路，我让 `Copilot` 自行生成对应的递归实现，结果问了好几次都不成功：无论使用什么样的提示词，无论怎么完善前置信息，Copilot 始终不能跳出当前的代码逻辑，帮我抽象出一个满足递归调用的新版本：
+
+![](assets/8.png)
+
+**图 8：多次卡住 GitHub Copilot 的“高难度”待重构代码片段**
+
+最终只能我自己动手修复了这个终极 `Bug`：
+
+```js
+function searchAround(curCell, curDom, colSize, mines) {
+    curCell.checked = true;
+
+    // Render the current cell
+    curDom.classList.add('number', `mc-${curCell.mineCount}`);
+    curDom.innerHTML = curCell.mineCount;
+
+    // 如果是空白单元格，则递归显示周围的格子，直到遇到非空白单元格
+    if (curCell.mineCount === 0) {
+        curDom.innerHTML = '';
+        curCell.neighbors.forEach(nbId => {
+            const nbCell = mines[nbId - 1];
+            const nbDom = $(`[data-id="${getIJ(nbId, colSize)}"]`);
+            if(!nbCell.checked && !nbCell.flagged && !nbCell.isMine) {
+                searchAround(nbCell, nbDom, colSize, mines);
+            }
+        });
+    }
+}
+```
+
+经此一役，`Copilot` 在我心中的地位也直线下滑，成功实现了 `AI` 辅助编程“祛魅”。
+
+种种迹象再次印证了当前 `AI` 的一个突出问题：无法真正理解补全代码的具体含义。
+
+按理说，扫雷游戏的开源代码不算少了，但为什么 `Copilot` 屡试屡败呢？这还是跟具体的训练数据有关，至少采用我这样递归查询算法的扫雷实现方案明显不足。到 `GitHub` 随手一搜，就看到一段没有使用递归检索的核心逻辑：
+
+```js
+this.reveal1 = function() {
+  /*...*/
+  var row, col;
+  var curCell, nbCell;
+  var stack = [];
+  stack.push(this);
+  this.pushed = true;
+
+  while (stack.length > 0) {
+    curCell = stack.pop();
+    if (!curCell.isRevealed() && !curCell.isFlagged()) {
+      if (curCell.isMine()) {
+        return false
+      }
+      curCell.setClass(`square open${curCell.getValue()}`);
+      curCell.setRevealed(true);
+      if(!curCell.isHidden()) {
+        if (--remainingSafeCells == 0) {
+          handleGameWinning();
+          return true
+        }
+        if (curCell.getValue() == 0) {
+          // Recursive reveal of neighbors
+          for (row = -1; row <= 1; row++) {
+            for (col = -1; col <= 1; col++) {
+              nbCell = gameGrid[curCell.getRow() + row][curCell.getCol() + col];
+              if (!nbCell.pushed && !nbCell.isHidden() && !nbCell.isRevealed()) {
+                stack.push(nbCell); // push the neighbor cell to the stack
+                nbCell.pushed = true
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  /*...*/
+}
+```
+
+看吧，人家都是自行维护调用栈，根本不会出现堆栈溢出的情况。
+
+类似的例子还有很多，就不一一引用了，反正承认自己的版本非常小众且弱鸡就是了。
+
+因此，想要真正让 `AI` 辅助编程大放异彩，至少现阶段还是困难重重：因为它理解不了代码的真正含义，所以可供选择的平替方案非常有限：
+
+1. 要么依靠高质量的精准数据定向投喂，发挥 `AI` 的相关性推断优势；
+2. 要么从算法层面再次突围：可惜不是所有公司都叫 `DeepSeek`；
+3. 要么就只能像文中的我，自己动手丰衣足食了。
+
+现在再看第八章作者的吐血推荐，真是感觉字字珠玑——
+
+> ***... Last, always, and we mean always, test every function you write.***
+> （……最后，重要的事情说三遍，务必要测一测写出的每一个函数。）
+
+ 姜，果然还是老的辣。
